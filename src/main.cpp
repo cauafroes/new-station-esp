@@ -1,71 +1,92 @@
+#include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
-
-int printValues();
-
-/*#include <SPI.h>
-#define BME_SCK 14
-#define BME_MISO 12
-#define BME_MOSI 13
-#define BME_CS 15*/
+#include <DNSServer.h>
+#include <WiFiManager.h> 
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 
-Adafruit_BME280 bme; // I2C
-//Adafruit_BME280 bme(BME_CS); // hardware SPI
-//Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
+#ifdef ESP32
+  #include <WiFi.h>
+  #include <HTTPClient.h>
+#else
+  #include <ESP8266WiFi.h>
+  #include <ESP8266HTTPClient.h>
+  #include <WiFiClient.h>
+#endif
 
-unsigned long delayTime;
+Adafruit_BME280 bme;  // I2C
+
+const char* serverName = "https://froesmhs.com/miniespstation/post-data.php";
+String apiKeyValue = "tPmAT5Ab3j7F9";
+String sensorName = "BME280";
+String sensorLocation = "CASA";
+
+unsigned long lastTime = 0;
+unsigned long timerDelay = 1000;
+
+float temperature, humidity, pressure;
+
+void getReadings(){
+  // volt = analogRead(A0);
+  //tensao da bateria +- entre 3.3 e 4.2(nao está calibrado, requer testes)
+  // bat = map(volt, 420, 650, 0, 100);
+  //esp "desliga" se tensao da bateria estiver muito baixa
+  // if(bat <= 0){
+    // ESP.deepSleep(0);
+  // }
+  // Serial.println(bat);
+  // Serial.println(countVen);
+  temperature = bme.readTemperature();
+  humidity = bme.readHumidity();
+  pressure = bme.readPressure();
+}
 
 void setup() {
   Serial.begin(115200);
-  Serial.println(F("BME280 test"));
 
-  bool status;
-
-  // default settings
-  // (you can also pass in a Wire library object like &Wire2)
-  status = bme.begin(0x76);  
+  WiFiManager wifiManager;
+  wifiManager.autoConnect("configurarEsp");
+  
+  bool status = bme.begin(0x76);
   if (!status) {
-    Serial.println("Could not find a valid BME280 sensor, check wiring!");
+    Serial.println("o bme nao foi achado");
     while (1);
   }
+  
+  Serial.println("Conectado no Wifi com endereco IP: ");
+  Serial.println(WiFi.localIP());
 
-  Serial.println("-- Default Test --");
-  delayTime = 1000;
-
-  Serial.println();
 }
 
-void loop() { 
-  printValues();
-  delay(delayTime);
-}
+void loop() {
+  if ((millis() - lastTime) > timerDelay) {
+    if(WiFi.status() != WL_CONNECTED){
+      Serial.println("WiFi desconectado");
+    }
+    
+    getReadings();
+    Serial.println("enviando");
 
-int printValues() {
-  Serial.print("Temperature = ");
-  Serial.print(bme.readTemperature());
-  Serial.println(" *C");
-  
-  // Convert temperature to Fahrenheit
-  /*Serial.print("Temperature = ");
-  Serial.print(1.8 * bme.readTemperature() + 32);
-  Serial.println(" *F");*/
-  
-  Serial.print("Pressure = ");
-  Serial.print(bme.readPressure() / 100.0F);
-  Serial.println(" hPa");
+    // WiFiClient client;
+    HTTPClient http;
 
-  Serial.print("Approx. Altitude = ");
-  Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
-  Serial.println(" m");
+    std::unique_ptr<BearSSL::WiFiClientSecure>client(new BearSSL::WiFiClientSecure);
 
-  Serial.print("Humidity = ");
-  Serial.print(bme.readHumidity());
-  Serial.println(" %");
+    // Ignore SSL certificate validation
+    client->setInsecure();
 
-  Serial.println();
+    http.begin(*client, serverName);
 
-  return 0;
+    http.addHeader("Content-Type", "application/json");
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    int httpResponseCode = http.POST("{\"api_key\":\"" + apiKeyValue + "\",\"sensor\":\"bme280\",\"location\":\"casa\",\"temp\":\"" + temperature+ "\",\"humi\":\""+humidity+"\",\"press\":\""+ pressure+ "\"}");
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+    String payload = http.getString();
+    Serial.println(payload);
+    http.end();
+    lastTime = millis();
+  }
 }
