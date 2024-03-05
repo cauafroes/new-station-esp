@@ -18,8 +18,8 @@
 
 Adafruit_BME280 bme;  // I2C
 
-const char* serverName = "https://froesmhs.com/miniespstation/post-data.php";
-String apiKeyValue = "tPmAT5Ab3j7F9";
+const char* serverName = "https://your-server/post-data.php";
+String apiKeyValue = "yourapikey";
 String sensorName = "BME280";
 String sensorLocation = "CASA";
 
